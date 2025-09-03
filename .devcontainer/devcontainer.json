@@ -1,0 +1,37 @@
+{
+"name":"uv python container",
+"build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "args": {
+        "UV_VERSION": "latest",
+        "DEBIAN_VERSION": "bookworm"
+        }
+    },
+    "features": {
+    },
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux":"zsh" ,
+                },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "njpwerner.autodocstring",
+                "charliermarsh.ruff",
+                "redhat.vscode-yaml",
+                "tamasfe.even-better-toml"
+            ]
+        }
+    },
+    "containerEnv": {
+        "DISPLAY": "dummy",
+        "PYTHONUNBUFFERED": "True",
+        "UV_PROJECT_ENVIRONMENT": "${containerWorkspaceFolder}/.venv",
+        "UV_CACHE_DIR":"${containerWorkspaceFolder}/.cache/uv"
+    },
+    "postCreateCommand": "uv sync --frozen",
+    
+    // "postStartCommand": "uv run pre-commit install"
+}
