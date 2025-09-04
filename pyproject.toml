@@ -1,7 +1,7 @@
 [project]
 name = "ie-fiesta"
 version = "0.1.0"
-description = "Add your description here"
+description = "A prototype for extracting information from construction documents"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -17,7 +17,3 @@ dependencies = [
     "torchvision>=0.23.0",
 ]
 
-[tool.uv.workspace]
-members = [
-    "ano-tool",
-]
