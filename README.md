@@ -1,2 +1,3 @@
-# uv-codespace
-A template codespace with UV added
+# The Information Extraction (IE) Fiesta 🪅
+
+more to come!
