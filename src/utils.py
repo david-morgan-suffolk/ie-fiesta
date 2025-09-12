@@ -13,3 +13,7 @@ def get_project_root(marker: str = ".here") -> Path:
 def get_assets_path() -> Path:
     """Returns the project assets directory."""
     return get_project_root() / "assets/"
+
+
+def get_samples_path() -> Path:
+    return get_assets_path() / "sample-sets"
