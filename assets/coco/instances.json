@@ -1,3 +1,60 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4a785a5448f9a5491c07cfd3d045d611cdcedc86c386e2a3012a1112958e0168
-size 959
+{
+	"images": [
+		{
+			"width": 1422,
+			"height": 1066,
+			"id": 0,
+			"file_name": "./bd6ffb4c-floor-plan-smaple.png"
+		}
+	],
+	"categories": [
+		{
+			"id": 0,
+			"name": "text"
+		},
+		{
+			"id": 1,
+			"name": "titleblock"
+		},
+		{
+			"id": 2,
+			"name": "viewport"
+		}
+	],
+	"annotations": [
+		{
+			"id": 0,
+			"image_id": 0,
+			"category_id": 1,
+			"segmentation": [],
+			"bbox": [
+				1325.1774039042266, 6.812867311630854, 92.70609124139875,
+				1053.2731243665926
+			],
+			"ignore": 0,
+			"iscrowd": 0,
+			"area": 97644.83436964247
+		},
+		{
+			"id": 1,
+			"image_id": 0,
+			"category_id": 2,
+			"segmentation": [],
+			"bbox": [
+				25.134535367545077, 8.797041270949011, 1290.732316227462,
+				1045.3009708737864
+			],
+			"ignore": 0,
+			"iscrowd": 0,
+			"area": 1349203.743290737
+		}
+	],
+	"info": {
+		"year": 2025,
+		"version": "1.0",
+		"description": "",
+		"contributor": "Label Studio",
+		"url": "",
+		"date_created": "2025-09-04 18:46:43.400359"
+	}
+}

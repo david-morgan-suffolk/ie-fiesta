@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2c6d18c8ca26817d613fc3deb944e7857e4520ab410e28b47c765613650b493b
-size 369
+ARG UV_VERSION=latest
+ARG DEBIAN_VERSION=bookworm
+
+FROM ghcr.io/astral-sh/uv:$UV_VERSION AS uv
+
+FROM mcr.microsoft.com/vscode/devcontainers/base:$DEBIAN_VERSION
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    # Install more stuff here
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=uv --chown=vscode: /uv /uvx /bin/
