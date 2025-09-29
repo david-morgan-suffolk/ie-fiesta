@@ -28,6 +28,10 @@ def get_sample_path() -> Path:
     return get_assets_path() / "sample-sets"
 
 
+def get_tests_path() -> Path:
+    return get_assets_path() / "sample-tests"
+
+
 def get_sample_docs() -> list[Path]:
     return [Path(i) for i, _ in get_files(get_sample_path())]
 
@@ -41,3 +45,7 @@ def get_sample_images(suffix: str = ".png") -> list[Path]:
                 files.append(file)
 
     return files
+
+
+def gcd(a, b):
+    return abs(a) if b == 0 else gcd(b, a % b)

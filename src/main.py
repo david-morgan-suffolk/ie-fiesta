@@ -1,10 +1,14 @@
-import matplotlib.pyplot as plt
+import math
+
 import torch
 from loguru import logger as log
 from PIL import Image
-from transformers import DetrFeatureExtractor, TableTransformerForObjectDetection
+from torchvision import transforms as t
+from transformers import (
+    LayoutLMv2Processor,
+)
 
-from utils import get_assets_path, get_sample_images
+from utils import get_assets_path, get_sample_images, get_tests_path
 
 torch.manual_seed(0)
 
@@ -12,62 +16,38 @@ ROOT = get_assets_path() / "coco"
 IMAGES = str(ROOT / "images")
 LABELS = str(ROOT / "instances.json")
 
-
-# colors for visualization
-COLORS = [
-    [0.000, 0.447, 0.741],
-    [0.850, 0.325, 0.098],
-    [0.929, 0.694, 0.125],
-    [0.494, 0.184, 0.556],
-    [0.466, 0.674, 0.188],
-    [0.301, 0.745, 0.933],
-]
+width: int = 0
+height: int = 0
 
 
-def plot_results(pil_img, scores, labels, boxes):
-    plt.figure(figsize=(16, 10))
-    plt.imshow(pil_img)
-    ax = plt.gca()
-    colors = COLORS * 100
-    for score, label, (xmin, ymin, xmax, ymax), c in zip(
-        scores.tolist(), labels.tolist(), boxes.tolist(), colors, strict=False
-    ):
-        ax.add_patch(
-            plt.plot.Rectangle(
-                (xmin, ymin), xmax - xmin, ymax - ymin, fill=False, color=c, linewidth=3
-            )
-        )
-        text = f"{label}: {score:0.2f}"
-        ax.text(xmin, ymin, text, fontsize=15, bbox=dict(facecolor="yellow", alpha=0.5))
-    plt.axis("off")
-    plt.show()
+def resize(a: int, b: int, target_a: int = 224) -> tuple[int, int]:
+    new_a = math.floor((a / b) * target_a)
+    new_b = math.floor((b / a) * new_a)
+    return (new_a, new_b)
 
 
 def main():
-    log.info("Starting Model")
-    model = TableTransformerForObjectDetection.from_pretrained(
-        "microsoft/table-transformer-detection"
-    )
     files = get_sample_images()
+    log.info(f"Starting Processor for {len(files)} files")
+    batch = tuple[str, list[any]]
+    result_path = get_tests_path()
 
-    for file_path in files:
-        log.info(f"Adding file\n{file_path}")
+    processor = LayoutLMv2Processor.from_pretrained("microsoft/layoutlmv2-base-uncased")
+    to_img = t.ToPILImage()
+    file = files[0]
+    input_img = Image.open(file).convert("RGB")
+    width, height = input_img.size
+    new_sizes = resize(width, height, 224)
+    input_img.resize(size=new_sizes)
+    encoding = processor(images=input_img, return_tensors="pt", truncation=True)
 
-        image = Image.open(file_path).convert("RGB")
-        width, height = image.size
-        image.resize((int(width * 0.5), int(height * 0.5)))
-        feature_extractor = DetrFeatureExtractor()
-        encoding = feature_extractor(image, return_tensors="pt")
-        log.info(encoding["pixel_values"].shape)
-        with torch.no_grad():
-            outputs = model(**encoding)
-            width, height = image.size
-            results = feature_extractor.post_process_object_detection(
-                outputs, threshold=0.5, target_sizes=[(height, width)]
-            )[0]
-            plot_results(image, results["scores"], results["labels"], results["boxes"])
-
-        return
+    images = encoding.get("image")
+    if isinstance(images, torch.Tensor):
+        img = to_img(images.squeeze())
+        loc = result_path / f"{file.stem}.JPEG"
+        log.info(loc)
+        img.save(loc, "JPEG")
+        log.info(img)
 
 
 if __name__ == "__main__":
