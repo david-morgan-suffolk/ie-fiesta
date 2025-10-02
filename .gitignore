@@ -10,12 +10,17 @@ backend/*
 *.png
 *.zip
 
+ 
+
 # C extensions
 *.so
 
 # Logging
 **/logs/*
 **/*.jsonl
+
+# Sample testing
+assets/sample-tests/*
 
 # Distribution / packaging
 .Python

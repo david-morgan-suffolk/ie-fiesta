@@ -5,10 +5,12 @@ from loguru import logger as log
 from PIL import Image
 from torchvision import transforms as t
 from transformers import (
+    LayoutLMv2ImageProcessor,
     LayoutLMv2Processor,
+    LayoutLMv2Tokenizer,
 )
 
-from utils import get_assets_path, get_sample_images, get_tests_path
+from utils import get_assets_path, get_sample_batch, get_tests_path
 
 torch.manual_seed(0)
 
@@ -26,29 +28,41 @@ def resize(a: int, b: int, target_a: int = 224) -> tuple[int, int]:
     return (new_a, new_b)
 
 
-def main():
-    files = get_sample_images()
-    log.info(f"Starting Processor for {len(files)} files")
-    batch = tuple[str, list[any]]
+def main(save: bool):
+    batch = get_sample_batch()
+    log.info(f"Starting Processor for {len(batch.keys())} docs")
     result_path = get_tests_path()
-
-    processor = LayoutLMv2Processor.from_pretrained("microsoft/layoutlmv2-base-uncased")
+    # each source is a single pdf doc set
     to_img = t.ToPILImage()
-    file = files[0]
-    input_img = Image.open(file).convert("RGB")
-    width, height = input_img.size
-    new_sizes = resize(width, height, 224)
-    input_img.resize(size=new_sizes)
-    encoding = processor(images=input_img, return_tensors="pt", truncation=True)
+    image_processor = LayoutLMv2ImageProcessor()
+    tokenizer = LayoutLMv2Tokenizer.from_pretrained("microsoft/layoutlmv2-base-uncased")
+    processor = LayoutLMv2Processor(image_processor, tokenizer)
 
-    images = encoding.get("image")
-    if isinstance(images, torch.Tensor):
-        img = to_img(images.squeeze())
-        loc = result_path / f"{file.stem}.JPEG"
-        log.info(loc)
-        img.save(loc, "JPEG")
-        log.info(img)
+    for batch_source, batch_images in batch.items():
+        # here we only need the first img to get this data from, since we are mounting all of this into a 3d buffer
+        width, height = Image.open(batch_images[0]).size
+        # remap the sizes for the model (flipped for orientation)
+        t_height, t_width = resize(height, width, 224)
+        # first we load the batch of images that we plan to push into the model
+        batch = []
+        for f in batch_images[:2]:
+            img = Image.open(f).convert("RGB").resize(size=(t_width, t_height))
+            batch.append(img)
+
+        img = batch[0]
+        img_path = batch_images[0]
+        encoding = processor(images=img, return_tensors="pt", truncation=True)
+
+        for k, v in encoding.items():
+            log.info(f"{k}={v.shape}")
+
+        # TODO: The plotting and resampling needs to be flushed out
+        image = encoding.get("image")
+        if save and isinstance(image, torch.Tensor):
+            img = to_img(image.squeeze())
+            loc = result_path / f"{img_path.stem}.JPEG"
+            img.save(loc, "JPEG")
 
 
 if __name__ == "__main__":
-    main()
+    main(False)

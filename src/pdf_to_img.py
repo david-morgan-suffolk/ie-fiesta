@@ -1,10 +1,16 @@
 import pathlib
 import re
+from pathlib import Path
 
 import pymupdf
 from loguru import logger
 
 from utils import get_files, get_sample_path
+
+
+def create_batch(file_path: Path) -> list:
+    doc = pymupdf.open(file_path)
+    return [page.get_pixmap() for page in doc]
 
 
 def to_page(limit: int = 5):
@@ -24,7 +30,7 @@ def to_page(limit: int = 5):
         pathlib.Path.mkdir(output_path)
 
         doc = pymupdf.open(file_path)
-        for page in doc:
+        for page in doc.pages(start=0, stop=limit):
             label = page.get_label()
             name = strip(f"{page.number}-{label if label else 'page'}")
             logger.info(f"Saving {name}")
