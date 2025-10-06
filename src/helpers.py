@@ -1,62 +1,74 @@
-import matplotlib.pyplot as plt
 import torch
-from torchvision import tv_tensors
-from torchvision.transforms import v2
-from torchvision.transforms.v2 import functional as F
-from torchvision.utils import draw_bounding_boxes, draw_segmentation_masks
+from PIL import ImageDraw, ImageFont
+from PIL.Image import Image
+from transformers import (
+    BatchEncoding,
+    LayoutLMv2Tokenizer,
+)
+
+# Types, lol
+Encoding = dict[str, torch.Tensor]
 
 
-# sourced from pytroch https://github.com/pytorch/vision/blob/main/gallery/transforms/helpers.py
-def plot(imgs, row_title=None, bbox_width=3, **imshow_kwargs):
-    if not isinstance(imgs[0], list):
-        # Make a 2d grid even if there's just 1 row
-        imgs = [imgs]
+def plot_results(
+    pil_img: Image,
+    encoding: BatchEncoding,
+    original_size: tuple[int, int],
+    tokenizer: LayoutLMv2Tokenizer | None = None,
+) -> Image:
+    """
+    Draws bounding boxes from the model's encoding onto the original image.
 
-    num_rows = len(imgs)
-    num_cols = len(imgs[0])
-    _, axs = plt.subplots(nrows=num_rows, ncols=num_cols, squeeze=False)
-    for row_idx, row in enumerate(imgs):
-        for col_idx, img in enumerate(row):
-            boxes = None
-            masks = None
-            if isinstance(img, tuple):
-                img, target = img
-                if isinstance(target, dict):
-                    boxes = target.get("boxes")
-                    masks = target.get("masks")
-                elif isinstance(target, tv_tensors.BoundingBoxes):
-                    boxes = target
+    Args:
+        pil_img: The original PIL Image object.
+        encoding: The dictionary of tensors returned by the LayoutLMv2Processor.
+        original_size: A tuple containing the (width, height) of the original image.
 
-                    # Conversion necessary because draw_bounding_boxes() only
-                    # work with this specific format.
-                    if tv_tensors.is_rotated_bounding_format(boxes.format):
-                        boxes = v2.ConvertBoundingBoxFormat("xyxyxyxy")(boxes)
-                else:
-                    raise ValueError(f"Unexpected target type: {type(target)}")
-            img = F.to_image(img)
-            if img.dtype.is_floating_point and img.min() < 0:
-                # Poor man's re-normalization for the colors to be OK-ish. This
-                # is useful for images coming out of Normalize()
-                img -= img.min()
-                img /= img.max()
+    Returns:
+        A new PIL Image object with the bounding boxes and tokens drawn on it.
+    """
+    original_width, original_height = original_size
+    draw = ImageDraw.Draw(pil_img)
+    font = ImageFont.load_default()
 
-            img = F.to_dtype(img, torch.uint8, scale=True)
-            if boxes is not None:
-                img = draw_bounding_boxes(img, boxes, colors="yellow", width=bbox_width)
-            if masks is not None:
-                img = draw_segmentation_masks(
-                    img,
-                    masks.to(torch.bool),
-                    colors=["green"] * masks.shape[0],
-                    alpha=0.65,
-                )
+    # The processor normalizes the bbox to a 1000x1000 space
+    boxes: list[list[int]] = encoding["bbox"].squeeze().tolist()  # pyright: ignore[reportAttributeAccessIssue]
+    token_ids: list[int] = encoding["input_ids"].squeeze().tolist()  # pyright: ignore[reportAttributeAccessIssue]
 
-            ax = axs[row_idx, col_idx]
-            ax.imshow(img.permute(1, 2, 0).numpy(), **imshow_kwargs)
-            ax.set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    # Get the tokenizer to decode token IDs back to text
+    if tokenizer is None:
+        tokenizer = LayoutLMv2Tokenizer.from_pretrained(
+            "microsoft/layoutlmv2-base-uncased"
+        )
 
-    if row_title is not None:
-        for row_idx in range(num_rows):
-            axs[row_idx, 0].set(ylabel=row_title[row_idx])
+    if tokenizer is None:
+        raise ValueError("No tokenizer found")
 
-    plt.tight_layout()
+    for box, token_id in zip(boxes, token_ids, strict=False):
+        # Skip special tokens like [CLS], [SEP], [PAD]
+        if token_id in [
+            tokenizer.cls_token_id,
+            tokenizer.sep_token_id,
+            tokenizer.pad_token_id,
+        ]:
+            continue
+
+        # Denormalize the bounding box coordinates
+        x0, y0, x1, y1 = box
+        scaled_box: list[float] = [
+            (x0 / 1000) * original_width,
+            (y0 / 1000) * original_height,
+            (x1 / 1000) * original_width,
+            (y1 / 1000) * original_height,
+        ]
+
+        # Draw the rectangle and the decoded token
+        draw.rectangle(scaled_box, outline="red", width=2)
+        token_text = tokenizer.decode([token_id])
+
+        # Add a small background for the text for better visibility
+        text_bbox = draw.textbbox((scaled_box[0], scaled_box[1]), token_text, font=font)
+        draw.rectangle(text_bbox, fill="red")
+        draw.text((scaled_box[0], scaled_box[1]), token_text, fill="white", font=font)
+
+    return pil_img

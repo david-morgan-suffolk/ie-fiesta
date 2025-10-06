@@ -3,13 +3,13 @@ import math
 import torch
 from loguru import logger as log
 from PIL import Image
-from torchvision import transforms as t
 from transformers import (
     LayoutLMv2ImageProcessor,
     LayoutLMv2Processor,
     LayoutLMv2Tokenizer,
 )
 
+from helpers import plot_results
 from utils import get_assets_path, get_sample_batch, get_tests_path
 
 torch.manual_seed(0)
@@ -28,12 +28,11 @@ def resize(a: int, b: int, target_a: int = 224) -> tuple[int, int]:
     return (new_a, new_b)
 
 
-def main(save: bool):
+def use_layoutlmv2(save: bool, print_logs: bool) -> None:
     batch = get_sample_batch()
     log.info(f"Starting Processor for {len(batch.keys())} docs")
     result_path = get_tests_path()
     # each source is a single pdf doc set
-    to_img = t.ToPILImage()
     image_processor = LayoutLMv2ImageProcessor()
     tokenizer = LayoutLMv2Tokenizer.from_pretrained("microsoft/layoutlmv2-base-uncased")
     processor = LayoutLMv2Processor(image_processor, tokenizer)
@@ -45,24 +44,28 @@ def main(save: bool):
         t_height, t_width = resize(height, width, 224)
         # first we load the batch of images that we plan to push into the model
         batch = []
+        og_batch = []
         for f in batch_images[:2]:
-            img = Image.open(f).convert("RGB").resize(size=(t_width, t_height))
-            batch.append(img)
+            og_img = Image.open(f).convert("RGB")
+            resized_img = og_img.resize(size=(t_width, t_height))
+            batch.append(resized_img)
+            og_batch.append(og_img)
 
-        img = batch[0]
-        img_path = batch_images[0]
-        encoding = processor(images=img, return_tensors="pt", truncation=True)
+        # for now we grab the first image to test
+        og_img = og_batch[0]
+        og_path = batch_images[0]
+        encoding = processor(images=og_img, return_tensors="pt", truncation=True)
 
-        for k, v in encoding.items():
-            log.info(f"{k}={v.shape}")
+        if print_logs:
+            for k, v in encoding.items():
+                log.info(f"{k}={v.shape}")
 
-        # TODO: The plotting and resampling needs to be flushed out
-        image = encoding.get("image")
-        if save and isinstance(image, torch.Tensor):
-            img = to_img(image.squeeze())
-            loc = result_path / f"{img_path.stem}.JPEG"
-            img.save(loc, "JPEG")
+        if save:
+            log.info("Plotting New Image")
+            img = plot_results(og_img, encoding, (width, height), tokenizer)
+            file_path = result_path / f"{og_path.stem}.jpeg"
+            img.save(file_path, "jpeg")
 
 
 if __name__ == "__main__":
-    main(False)
+    use_layoutlmv2(save=True, print_logs=True)
