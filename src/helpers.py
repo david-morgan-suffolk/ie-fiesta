@@ -10,6 +10,7 @@ from transformers import (
 Encoding = dict[str, torch.Tensor]
 
 
+# Generated from gemini, probably fucked
 def plot_results(
     pil_img: Image,
     encoding: BatchEncoding,

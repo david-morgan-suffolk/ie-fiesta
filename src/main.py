@@ -1,12 +1,12 @@
 import math
 
 import torch
+import torchvision
 from loguru import logger as log
 from PIL import Image
-from transformers import (
-    LayoutLMv2ImageProcessor,
-    LayoutLMv2Processor,
-    LayoutLMv2Tokenizer,
+from torchvision.models.detection.faster_rcnn import FasterRCNN
+from torchvision.models.feature_extraction import (
+    get_graph_node_names,
 )
 
 from helpers import plot_results
@@ -29,6 +29,12 @@ def resize(a: int, b: int, target_a: int = 224) -> tuple[int, int]:
 
 
 def use_layoutlmv2(save: bool, print_logs: bool) -> None:
+    from transformers import (
+        LayoutLMv2ImageProcessor,
+        LayoutLMv2Processor,
+        LayoutLMv2Tokenizer,
+    )
+
     batch = get_sample_batch()
     log.info(f"Starting Processor for {len(batch.keys())} docs")
     result_path = get_tests_path()
@@ -42,7 +48,7 @@ def use_layoutlmv2(save: bool, print_logs: bool) -> None:
         width, height = Image.open(batch_images[0]).size
         # remap the sizes for the model (flipped for orientation)
         t_height, t_width = resize(height, width, 224)
-        # first we load the batch of images that we plan to push into the model
+        # first we load the batch of images that we plan t o push into the model
         batch = []
         og_batch = []
         for f in batch_images[:2]:
@@ -67,5 +73,37 @@ def use_layoutlmv2(save: bool, print_logs: bool) -> None:
             img.save(file_path, "jpeg")
 
 
+def use_fasterrcnn(feature_count: int = 3) -> None:
+    log.info("Starting Faster RCNN Model")
+    mobilenet = torchvision.models.mobilenet_v3_large(
+        weights=torchvision.models.MobileNet_V3_Large_Weights.DEFAULT
+    )
+    backbone = mobilenet.features
+    backbone.out_channels = 960  # not really sure how these layering stuff works here
+
+    model = FasterRCNN(backbone, num_classes=feature_count)
+    train_nodes, eval_nodes = get_graph_node_names(model)
+    log.info(f"Checking Nodes\nTraining Nodes:{train_nodes}\nEval Nodes:{eval_nodes}")
+
+    return
+    model.eval()
+    log.info("\nTesting model with mock data...")
+    dummy_input = [torch.rand(3, 800, 600)]
+
+    predictions = None
+    with torch.no_grad():
+        predictions = model(dummy_input)
+
+    log.info(f"Mock test complete\n{predictions}")
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    log.info(f"Total trainable parameters: {total_params:,}")
+
+    batch = get_sample_batch()
+    log.info(f"Batch size of {len(batch.keys())} docs")
+    result_path = get_tests_path()
+
+
 if __name__ == "__main__":
-    use_layoutlmv2(save=True, print_logs=True)
+    use_fasterrcnn(feature_count=3)
+
+    # use_layoutlmv2(save=True, print_logs=True)
