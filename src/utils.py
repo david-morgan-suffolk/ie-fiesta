@@ -66,6 +66,12 @@ def get_sample_batch() -> dict[Path, list[Path]]:
     return values
 
 
+def get_training_dir() -> Path:
+    p = get_project_root() / ".training"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def gcd(a, b):
     return abs(a) if b == 0 else gcd(b, a % b)
 

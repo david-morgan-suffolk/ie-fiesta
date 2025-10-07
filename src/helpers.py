@@ -73,3 +73,11 @@ def plot_results(
         draw.text((scaled_box[0], scaled_box[1]), token_text, fill="white", font=font)
 
     return pil_img
+
+
+def resize(a: int, b: int, target_a: int = 224) -> tuple[int, int]:
+    import math
+
+    new_a = math.floor((a / b) * target_a)
+    new_b = math.floor((b / a) * new_a)
+    return (new_a, new_b)
