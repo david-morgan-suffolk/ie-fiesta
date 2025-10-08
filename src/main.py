@@ -1,104 +1,81 @@
+from __future__ import annotations
+import argparse
 from pathlib import Path
 
 import torch
-import torchvision
-from loguru import logger as log
-from PIL import Image
-from torchvision.models.detection.faster_rcnn import FasterRCNN
+from torch.utils.data import DataLoader
 
-from dataset import TitleBlockDataset
-from helpers import plot_results, resize
-from utils import get_assets_path, get_sample_batch, get_tests_path
+from dataset import TitleBlockDataset, collate_fn, default_transforms
+from models import build_frcnn_mobilenet
+from utils import seed_everything, save_checkpoint, eval_ap50
 
-torch.manual_seed(0)
+def train_one_epoch(model, loader, optimizer, device, epoch: int, log_every: int = 50):
+    model.train()
+    total = 0.0
+    for i, (imgs, targets) in enumerate(loader, 1):
+        imgs = [img.to(device) for img in imgs]
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        losses = model(imgs, targets)
+        loss = sum(losses.values())
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+        optimizer.step()
+        total += loss.item()
+        if i % log_every == 0:
+            print(f"[epoch {epoch:02d} step {i:04d}] loss={loss.item():.4f}")
+    return total / max(1, len(loader))
 
-ROOT = get_assets_path() / "coco"
-IMAGES = str(ROOT / "images")
-LABELS = str(ROOT / "instances.json")
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--train_json", type=Path, required=True)
+    p.add_argument("--val_json", type=Path, required=True)
+    p.add_argument("--img_dir", type=Path, required=True)
+    p.add_argument("--epochs", type=int, default=12)
+    p.add_argument("--batch_size", type=int, default=2)
+    p.add_argument("--lr", type=float, default=5e-3)
+    p.add_argument("--outdir", type=Path, default=Path("checkpoints"))
+    p.add_argument("--num_workers", type=int, default=4)
+    p.add_argument("--titleblock_only", action="store_true",
+                   help="Keep only category_id==0 (titleblock) and drop others.")
+    args = p.parse_args()
 
-width: int = 0
-height: int = 0
+    seed_everything(42)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    keep_cat = 0 if args.titleblock_only else None
+    train_ds = TitleBlockDataset(args.train_json, args.img_dir,
+                                 transforms=default_transforms(),
+                                 keep_only_category_id=keep_cat)
+    val_ds   = TitleBlockDataset(args.val_json,   args.img_dir,
+                                 transforms=default_transforms(),
+                                 keep_only_category_id=keep_cat)
 
-def use_layoutlmv2(save: bool, print_logs: bool) -> None:
-    from transformers import (
-        LayoutLMv2ImageProcessor,
-        LayoutLMv2Processor,
-        LayoutLMv2Tokenizer,
-    )
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
+                              num_workers=args.num_workers, collate_fn=collate_fn)
+    val_loader   = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
+                              num_workers=args.num_workers, collate_fn=collate_fn)
 
-    batch = get_sample_batch()
-    log.info(f"Starting Processor for {len(batch.keys())} docs")
-    result_path = get_tests_path()
-    # each source is a single pdf doc set
-    image_processor = LayoutLMv2ImageProcessor()
-    tokenizer = LayoutLMv2Tokenizer.from_pretrained("microsoft/layoutlmv2-base-uncased")
-    processor = LayoutLMv2Processor(image_processor, tokenizer)
+    # num_classes includes background
+    num_classes = 2 if args.titleblock_only else 3
+    model = build_frcnn_mobilenet(num_classes=num_classes).to(device)
 
-    for _, batch_images in batch.items():
-        # here we only need the first img to get this data from, since we are mounting all of this into a 3d buffer
-        width, height = Image.open(batch_images[0]).size
-        # remap the sizes for the model (flipped for orientation)
-        t_height, t_width = resize(height, width, 224)
-        # first we load the batch of images that we plan t o push into the model
-        batch = []
-        og_batch = []
-        for f in batch_images[:2]:
-            og_img = Image.open(f).convert("RGB")
-            resized_img = og_img.resize(size=(t_width, t_height))
-            batch.append(resized_img)
-            og_batch.append(og_img)
+    params = [p for p in model.parameters() if p.requires_grad]
+    optim = torch.optim.SGD(params, lr=args.lr, momentum=0.9, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[8, 10], gamma=0.1)
 
-        # for now we grab the first image to test
-        og_img = og_batch[0]
-        og_path = batch_images[0]
-        encoding = processor(images=og_img, return_tensors="pt", truncation=True)
-
-        if print_logs:
-            for k, v in encoding.items():
-                log.info(f"{k}={v.shape}")
-
-        if save:
-            log.info("Plotting New Image")
-            img = plot_results(og_img, encoding, (width, height), tokenizer)
-            file_path = result_path / f"{og_path.stem}.jpeg"
-            img.save(file_path, "jpeg")
-
-
-def use_fasterrcnn(
-    features: list[str],
-) -> None:
-    log.info("Starting Faster RCNN Model")
-    mobilenet = torchvision.models.mobilenet_v3_large(weights="DEFAULT")
-    # remove the mapping channel as we'll setup our own
-    backbone = mobilenet.features
-    backbone.out_channels = 960
-    model = FasterRCNN(backbone, num_classes=len(features))
-
-
-def get_coco_path() -> Path:
-    return get_assets_path() / "coco"
-
-
-def get_coco_file(c: str = "single") -> Path:
-    return get_coco_path() / f"{c}-set/result.json"
-
+    best = 0.0
+    for epoch in range(1, args.epochs + 1):
+        tr_loss = train_one_epoch(model, train_loader, optim, device, epoch)
+        ap50 = eval_ap50(model, val_loader, device)
+        print(f"epoch {epoch:02d} | loss={tr_loss:.4f} | AP50={ap50:.4f}")
+        sched.step()
+        save_checkpoint(model, optim, epoch, args.outdir)
+        if ap50 > best:
+            best = ap50
+            (args.outdir / "best_model.pt").parent.mkdir(parents=True, exist_ok=True)
+            torch.save(model.state_dict(), args.outdir / "best_model.pt")
+            print(f"✓ new best AP50={best:.4f} (saved best_model.pt)")
 
 if __name__ == "__main__":
-    from torchvision import transforms as T
-
-    data_transforms = T.Compose([T.ToTensor()])
-
-    coco = get_coco_file(c="single")
-
-    ds = TitleBlockDataset(
-        anno_file=coco, img_dir=coco.parent / "images", transforms=data_transforms
-    )
-    # example using the dataset
-    from torch.utils.data import DataLoader
-
-    loader = DataLoader(ds)
-    log.info(loader)
-    # features = ["background", "titleblock", "viewport"]
-    # use_fasterrcnn(features)
-    # use_layoutlmv2(save=True, print_logs=True)
+    main()

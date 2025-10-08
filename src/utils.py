@@ -1,90 +1,63 @@
-import os
+from __future__ import annotations
+import random
 from pathlib import Path
+from typing import List
 
-import numpy as np
+import torch
+from torchvision.ops import box_iou
 
+def seed_everything(seed: int = 42):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
-def get_project_root(marker: str = ".here") -> Path:
-    """Returns the project root directory."""
-    current_file = Path(__file__).resolve()
-    for parent in current_file.parents:
-        if (parent / marker).exists():
-            return parent
-    raise FileNotFoundError(f"Project root (with {marker}) not found.")
+def save_checkpoint(model, optimizer, epoch: int, outdir: Path):
+    outdir.mkdir(parents=True, exist_ok=True)
+    path = outdir / f"model_epoch{epoch}.pt"
+    torch.save({"model": model.state_dict(), "optim": optimizer.state_dict(), "epoch": epoch}, path)
+    return path
 
+@torch.no_grad()
+def ap50_single_image(pred_boxes, pred_scores, gt_boxes, score_thresh=0.05, iou_thresh=0.5):
+    if pred_boxes.numel() == 0 and gt_boxes.numel() == 0:
+        return 1.0
+    if pred_boxes.numel() == 0 and gt_boxes.numel() > 0:
+        return 0.0
+    keep = pred_scores >= score_thresh
+    pred_boxes = pred_boxes[keep]
+    pred_scores = pred_scores[keep]
+    if pred_boxes.numel() == 0:
+        return 0.0
 
-def get_assets_path() -> Path:
-    """Returns the project assets directory."""
-    return get_project_root() / "assets/"
+    order = torch.argsort(pred_scores, descending=True)
+    pred_boxes = pred_boxes[order]
 
+    ious = box_iou(pred_boxes, gt_boxes) if gt_boxes.numel() > 0 else torch.zeros((len(pred_boxes), 0))
+    matched_gt = set()
+    tp = fp = 0
+    for i in range(len(pred_boxes)):
+        if gt_boxes.numel() == 0:
+            fp += 1; continue
+        j = torch.argmax(ious[i]).item()
+        if ious[i, j] >= iou_thresh and j not in matched_gt:
+            tp += 1; matched_gt.add(j)
+        else:
+            fp += 1
+    fn = max(0, gt_boxes.shape[0] - len(matched_gt))
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    return (precision + recall) / 2.0  # quick proxy
 
-def get_files(path: str | Path, type: str = ".pdf") -> list[tuple[str, str]]:
-    return [
-        (os.path.join(path, file), file.split(".")[0])
-        for file in os.listdir(path)
-        if file.endswith(type)
-    ]
-
-
-def get_sample_path() -> Path:
-    return get_assets_path() / "sample-sets"
-
-
-def get_tests_path() -> Path:
-    return get_assets_path() / "sample-tests"
-
-
-def get_sample_docs() -> list[Path]:
-    return [Path(i) for i, _ in get_files(get_sample_path())]
-
-
-def get_sample_dirs():
-    for d in get_sample_path().iterdir():
-        if d.is_dir():
-            yield d
-
-
-def get_sample_images(suffix: str = ".png") -> list[Path]:
-    files = []
-    for d in get_sample_dirs():
-        for file in d.iterdir():
-            if file.is_file and file.suffix == suffix:
-                files.append(file)
-
-    return files
-
-
-def get_sample_batch() -> dict[Path, list[Path]]:
-    values = {}
-    for d in get_sample_dirs():
-        files = []
-        for file in d.iterdir():
-            if file.is_file and file.suffix == ".png":
-                files.append(file)
-
-        values[d] = files
-    return values
-
-
-def get_training_dir() -> Path:
-    p = get_project_root() / ".training"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def gcd(a, b):
-    return abs(a) if b == 0 else gcd(b, a % b)
-
-
-def show(imgs):
-    import matplotlib.pyplot as plt
-    import torchvision.transforms.functional as F
-
-    if not isinstance(imgs, list):
-        imgs = [imgs]
-    fix, axs = plt.subplots(ncols=len(imgs), squeeze=False)
-    for i, img in enumerate(imgs):
-        img = img.detach()
-        img = F.to_pil_image(img)
-        axs[0, i].imshow(np.asarray(img))
-        axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+@torch.no_grad()
+def eval_ap50(model, dataloader, device):
+    model.eval()
+    scores: List[float] = []
+    for imgs, targets in dataloader:
+        imgs = [img.to(device) for img in imgs]
+        preds = model(imgs)
+        for p, t in zip(preds, targets):
+            pb = p["boxes"].cpu()
+            ps = p["scores"].cpu()
+            gb = t["boxes"].cpu()
+            scores.append(ap50_single_image(pb, ps, gb))
+    return float(torch.tensor(scores).mean().item()) if scores else 0.0
