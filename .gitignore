@@ -7,10 +7,8 @@ __pycache__/
 editor/*
 label-editor/*
 backend/*
-*.png
-*.zip
 
- 
+*.zip 
 
 # C extensions
 *.so
