@@ -27,6 +27,7 @@ def to_page(limit: int = 5):
         if pathlib.Path.exists(output_path):
             logger.info("Skipping")
             continue
+
         pathlib.Path.mkdir(output_path)
 
         doc = pymupdf.open(file_path)

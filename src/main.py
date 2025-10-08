@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import torchvision
 from loguru import logger as log
@@ -6,7 +8,7 @@ from torchvision.models.detection.faster_rcnn import FasterRCNN
 
 from dataset import TitleBlockDataset
 from helpers import plot_results, resize
-from utils import get_assets_path, get_sample_batch, get_tests_path, get_training_dir
+from utils import get_assets_path, get_sample_batch, get_tests_path
 
 torch.manual_seed(0)
 
@@ -74,15 +76,23 @@ def use_fasterrcnn(
     model = FasterRCNN(backbone, num_classes=len(features))
 
 
+def get_coco_path() -> Path:
+    return get_assets_path() / "coco"
+
+
+def get_coco_file(c: str = "single") -> Path:
+    return get_coco_path() / f"{c}-set/result.json"
+
+
 if __name__ == "__main__":
     from torchvision import transforms as T
 
     data_transforms = T.Compose([T.ToTensor()])
 
-    coco = get_assets_path() / "coco/instances.json"
+    coco = get_coco_file(c="single")
 
     ds = TitleBlockDataset(
-        img_dir=get_training_dir(), anno_file=coco, transforms=data_transforms
+        anno_file=coco, img_dir=coco.parent / "images", transforms=data_transforms
     )
     # example using the dataset
     from torch.utils.data import DataLoader

@@ -123,3 +123,32 @@ PageItemAdapter = TypeAdapter(
         Field(discriminator="node_type"),
     ]
 )
+
+
+class CocoImageModel(BaseModel):
+    width: int = 0
+    height: int = 0
+    id: int
+    file_name: str
+
+
+class CocoCategoriesModel(BaseModel):
+    id: int
+    name: str
+
+
+class CocoAnnoModel(BaseModel):
+    id: int
+    image_id: int
+    category_id: int
+    segmentation: list[str] = Field(default_factory=list)
+    bbox: list[float]
+    ignore: int
+    iscrowd: int
+    area: float
+
+
+class CocoModel(BaseModel):
+    images: list[CocoImageModel] = Field(default_factory=list)
+    categories: list[CocoCategoriesModel] = Field(default_factory=list)
+    annotations: list[CocoAnnoModel] = Field(default_factory=list)

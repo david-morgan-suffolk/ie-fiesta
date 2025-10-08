@@ -10,16 +10,17 @@ from torch.utils.data import Dataset
 class TitleBlockDataset(Dataset):
     def __init__(
         self,
-        img_dir: Path,
         anno_file: Path,
+        img_dir: Path,
         transforms: Callable | None = None,
     ) -> None:
         """
         Args:
-            img_dir (str): Path to the directory where images are stored.
             anno_file (str): Path to the COCO format JSON annotation file.
             transforms (callable, optional): A pipeline.
+
         """
+        # assuming the typical location for image assets
         self.img_dir = img_dir
         self.transforms = transforms
 
@@ -85,8 +86,10 @@ class TitleBlockDataset(Dataset):
         # Throwing this in since gemini claims its useful metrics like COCOeval
         target["image_id"] = torch.tensor([img_id])
 
+        tensor: torch.Tensor
+
         if self.transforms:
             # Add in boxes and labels ?
-            image = self.transforms(img)
+            tensor = self.transforms(img)
 
-        return image, target
+        return tensor, target
